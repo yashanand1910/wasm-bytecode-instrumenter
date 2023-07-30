@@ -28,12 +28,10 @@ pub fn instrument(mut module: Module) -> Module {
 
     // Iterate on local functions
     module.funcs.iter_local_mut().for_each(|(_func_id, func)| {
-        let func_builder = func.builder_mut();
-        let mut instr_builder = func_builder.func_body();
-        let instr_seq = instr_builder.instrs_mut();
-
         // Get positions in function where to insert instructions
+        let instr_seq = func.block(func.entry_block());
         let mut insert_positions: Vec<usize> = Vec::new();
+
         instr_seq.iter().enumerate().for_each(|(i, (instr, _))| {
             // TODO: Deal with nested blocks
             match instr {
@@ -46,6 +44,8 @@ pub fn instrument(mut module: Module) -> Module {
         // Insert counting instructions at the captured positions.
         // The positions will need to be offseted by the number of new
         // instructions that have been inserted.
+        let func_builder_mut = func.builder_mut();
+        let mut instr_builder = func_builder_mut.func_body();
         let mut inserts_so_far: usize = 0;
         for pos_orig in insert_positions.iter() {
             let ioffset: i32 = (curr_foffset + pos_orig) as i32;
