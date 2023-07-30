@@ -95,9 +95,9 @@ fn get_probe_insert_locs(func: &LocalFunction, instr_seq_id: InstrSeqId) -> Prob
     insert_locs
 }
 
-// Insert probes at the provided insert locations
-// Recursively does it for all nested blocks and returns
-// total count of inserted probes
+/// Insert probes at the provided insert locations
+/// Recursively does it for all nested blocks and returns
+/// total count of inserted probes
 /// FIXME: Count based on top operand value
 fn insert_probes(
     func: &mut LocalFunction,
