@@ -23,8 +23,8 @@ impl Monitor {
 /// WASM module.
 pub fn add_monitor(module: Module, monitor: Monitor, path: &Path) -> walrus::Result<()> {
     let instrumented_module = match monitor {
-        Monitor::Branch => branch::instrument(module, path),
-        Monitor::Hotness => hotness::instrument(module, path),
+        Monitor::Branch => branch::instrument(module),
+        Monitor::Hotness => hotness::instrument(module),
     };
 
     write_module(instrumented_module, &monitor.name(), path)

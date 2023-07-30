@@ -1,8 +1,8 @@
 use std::{env, path::Path};
 
 use anyhow::bail;
-use bytecode_rewriter::monitor::{add_monitor, Monitor};
 use walrus::Module;
+use wasm_bytecode_instrumenter::monitor::{add_monitor, Monitor};
 
 fn main() -> walrus::Result<()> {
     let args: Vec<String> = env::args().skip(1).collect();
