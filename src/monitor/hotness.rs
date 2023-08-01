@@ -110,77 +110,78 @@ fn insert_probes(
             Some(block_insert_locs) => {
                 probe_count += insert_probes(func, block_insert_locs, foffset, mem_id);
             }
-            _ => {}
+            _ => {
+                let func_builder = func.builder_mut();
+                let mut instr_builder = func_builder.instr_seq(insert_locs.id);
+
+                let ioffset: i32 = (foffset + pos_orig) as i32;
+                let mut i = pos_orig + inserts_so_far;
+
+                // Insert store index const instr
+                let store_index = Const {
+                    value: Value::I32(ioffset),
+                };
+                let i64_const_store_index: Instr = Instr::Const(store_index);
+                instr_builder.instr_at(i, i64_const_store_index);
+                i += 1;
+
+                // Insert load index const instr
+                let load_index = Const {
+                    value: Value::I32(ioffset),
+                };
+                let i64_const_load_index: Instr = Instr::Const(load_index);
+                instr_builder.instr_at(i, i64_const_load_index);
+                i += 1;
+
+                // Insert load instr
+                instr_builder.instr_at(
+                    i,
+                    Instr::Load(Load {
+                        memory: *mem_id,
+                        kind: LoadKind::I64 { atomic: false },
+                        arg: MemArg {
+                            align: 0, // XXX: Not sure if alignment is OK
+                            offset: 0,
+                        },
+                    }),
+                );
+                i += 1;
+
+                // Insert increment count const
+                let incr_count = Const {
+                    value: Value::I64(1),
+                };
+                let i64_const_incr_count: Instr = Instr::Const(incr_count);
+                instr_builder.instr_at(i, i64_const_incr_count);
+                i += 1;
+
+                // Insert add instr
+                instr_builder.instr_at(
+                    i,
+                    Instr::Binop(Binop {
+                        op: BinaryOp::I64Add,
+                    }),
+                );
+                i += 1;
+
+                // Insert store instr
+                instr_builder.instr_at(
+                    i,
+                    Instr::Store(Store {
+                        memory: *mem_id,
+                        kind: StoreKind::I64 { atomic: false },
+                        arg: MemArg {
+                            align: 0, // XXX: Not sure if alignment is OK
+                            offset: 0,
+                        },
+                    }),
+                );
+                i += 1;
+
+                inserts_so_far = i - pos_orig;
+                probe_count += 1;
+            }
         }
-        let func_builder = func.builder_mut();
-        let mut instr_builder = func_builder.instr_seq(insert_locs.id);
-
-        let ioffset: i32 = (foffset + pos_orig) as i32;
-        let mut i = pos_orig + inserts_so_far;
-
-        // Insert store index const instr
-        let store_index = Const {
-            value: Value::I32(ioffset),
-        };
-        let i64_const_store_index: Instr = Instr::Const(store_index);
-        instr_builder.instr_at(i, i64_const_store_index);
-        i += 1;
-
-        // Insert load index const instr
-        let load_index = Const {
-            value: Value::I32(ioffset),
-        };
-        let i64_const_load_index: Instr = Instr::Const(load_index);
-        instr_builder.instr_at(i, i64_const_load_index);
-        i += 1;
-
-        // Insert load instr
-        instr_builder.instr_at(
-            i,
-            Instr::Load(Load {
-                memory: *mem_id,
-                kind: LoadKind::I64 { atomic: false },
-                arg: MemArg {
-                    align: 0, // XXX: Not sure if alignment is OK
-                    offset: 0,
-                },
-            }),
-        );
-        i += 1;
-
-        // Insert increment count const
-        let incr_count = Const {
-            value: Value::I64(1),
-        };
-        let i64_const_incr_count: Instr = Instr::Const(incr_count);
-        instr_builder.instr_at(i, i64_const_incr_count);
-        i += 1;
-
-        // Insert add instr
-        instr_builder.instr_at(
-            i,
-            Instr::Binop(Binop {
-                op: BinaryOp::I64Add,
-            }),
-        );
-        i += 1;
-
-        // Insert store instr
-        instr_builder.instr_at(
-            i,
-            Instr::Store(Store {
-                memory: *mem_id,
-                kind: StoreKind::I64 { atomic: false },
-                arg: MemArg {
-                    align: 0, // XXX: Not sure if alignment is OK
-                    offset: 0,
-                },
-            }),
-        );
-        i += 1;
-
-        inserts_so_far = i - pos_orig;
-        probe_count += 1;
     }
 
     probe_count
