@@ -17,7 +17,7 @@ fn main() -> walrus::Result<()> {
     }
 
     let monitor: Monitor = match &args[0][..] {
-        "branch" => Monitor::Branch,
+        "branches" => Monitor::Branch,
         "hotness" => Monitor::Hotness,
         name => bail!("Invalid monitor {}", name),
     };
