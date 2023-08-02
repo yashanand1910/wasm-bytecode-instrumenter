@@ -13,7 +13,7 @@ pub enum Monitor {
 impl Monitor {
     fn name(&self) -> &str {
         match self {
-            Monitor::Branch => "branch",
+            Monitor::Branch => "branches",
             Monitor::Hotness => "hotness",
         }
     }
