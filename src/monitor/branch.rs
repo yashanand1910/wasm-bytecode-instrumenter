@@ -121,21 +121,10 @@ fn get_probe_insert_locs(func: &LocalFunction, instr_seq_id: InstrSeqId) -> Prob
                     insert_locs.positions.push((i, 2, None));
                 }
                 Instr::BrTable(table) => {
-                    let table_blocks: &[InstrSeqId] = &table.blocks[..];
-                    for &block in table_blocks {
-                        let block_insert_locs = get_probe_insert_locs(func, block);
-                        insert_locs.positions.push((i, 0, Some(block_insert_locs)));
-                    }
-
-                    let default_block_insert_locs = get_probe_insert_locs(func, table.default);
+                    // We need to evaluate the operand before the br_table instr
                     insert_locs
                         .positions
-                        .push((i, 0, Some(default_block_insert_locs)));
-
-                    // We also need to evaluate the operand before the br_table instr
-                    insert_locs
-                        .positions
-                        .push((i, table_blocks.len() + 1, None));
+                        .push((i, table.blocks.len() + 1, None));
                 }
                 Instr::BrIf(_) => {
                     insert_locs.positions.push((i, 2, None));
