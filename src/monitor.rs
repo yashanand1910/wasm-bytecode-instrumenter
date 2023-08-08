@@ -19,6 +19,10 @@ impl Monitor {
     }
 }
 
+const MEMREGION: &str = "instrument";
+const MEMUNIT: usize = 64;
+const COUNTSIZE: usize = 4; // Size in bytes for storing a count
+
 /// Adds monitor instrumentation bytecode to an existing
 /// WASM module.
 pub fn add_monitor(module: Module, monitor: Monitor, path: &Path) -> walrus::Result<()> {
