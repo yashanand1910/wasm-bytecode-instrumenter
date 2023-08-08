@@ -1,12 +1,15 @@
+use std::cmp::max;
+
 use walrus::{
     ir::{
         BinaryOp, Binop, Const, Instr, InstrSeqId, Load, LoadKind, MemArg, Store, StoreKind, Value,
     },
-    ExportItem, LocalFunction, MemoryId, Module,
+    ExportItem, LocalFunction, Memory, MemoryId, Module,
 };
 
-// Size in bytes for storing a count
-const SIZE: usize = 8;
+use crate::monitor::MEMUNIT;
+
+use super::{COUNTSIZE, MEMREGION};
 
 // Struct to store info on insertion locations for an instruction sequence.
 // Note that blocks can be indefinitely nested.
@@ -26,10 +29,9 @@ struct ProbeInsertLocs {
 ///     4.  TODO: Figure out how to print the output at the end.
 pub fn instrument(mut module: Module) -> Module {
     // Add linear memory for storing counts
-    // XXX: Might need to adjust max size
     // XXX: Might need to initialize to 0
     let mem_id = module.memories.add_local(false, 1, None);
-    module.exports.add("mem", ExportItem::Memory(mem_id));
+    module.exports.add(MEMREGION, ExportItem::Memory(mem_id));
 
     // Iterate on local functions
     let mut foffsets: Vec<usize> = Vec::new();
@@ -38,23 +40,30 @@ pub fn instrument(mut module: Module) -> Module {
         // Add function offset
         foffsets.push(curr_foffset);
 
-        curr_foffset = instrument_func(func, curr_foffset, mem_id);
+        curr_foffset += instrument_func(func, curr_foffset, mem_id);
     });
+
+    // Update size of memory region
+    let mem_region: &mut Memory = module.memories.get_mut(mem_id);
+    let mem_size = (max(1, curr_foffset / MEMUNIT)) as u32;
+    mem_region.initial = mem_size;
+    mem_region.maximum = Some(mem_size);
 
     module
 }
 
 /// Instrument a local function and return size (in bytes)
 /// of memory it will require to capture its instrumentation data
-/// FIXME: Offset locations are incorrect
 fn instrument_func(func: &mut LocalFunction, foffset: usize, mem_id: MemoryId) -> usize {
     // Get insert locations for probe insertion
     let probe_insert_locs = get_probe_insert_locs(func, func.entry_block());
 
+    // println!("{:#?}", probe_insert_locs);
+
     // Insert probes (counting instructions) at the locations
     let insert_count = insert_probes(func, &probe_insert_locs, &foffset, &mem_id);
 
-    insert_count * SIZE
+    insert_count * COUNTSIZE
 }
 
 fn get_probe_insert_locs(func: &LocalFunction, instr_seq_id: InstrSeqId) -> ProbeInsertLocs {
@@ -85,7 +94,51 @@ fn get_probe_insert_locs(func: &LocalFunction, instr_seq_id: InstrSeqId) -> Prob
                         .positions
                         .push((i, Some(else_block_insert_locs)));
                 }
-                _ => {
+                Instr::Call(_)
+                | Instr::CallIndirect(_)
+                | Instr::LocalGet(_)
+                | Instr::LocalSet(_)
+                | Instr::LocalTee(_)
+                | Instr::GlobalGet(_)
+                | Instr::GlobalSet(_)
+                | Instr::Const(_)
+                | Instr::Binop(_)
+                | Instr::Unop(_)
+                | Instr::Select(_)
+                | Instr::Unreachable(_)
+                | Instr::Br(_)
+                | Instr::BrIf(_)
+                | Instr::BrTable(_)
+                | Instr::Drop(_)
+                | Instr::Return(_)
+                | Instr::MemorySize(_)
+                | Instr::MemoryGrow(_)
+                | Instr::MemoryInit(_)
+                | Instr::DataDrop(_)
+                | Instr::MemoryCopy(_)
+                | Instr::MemoryFill(_)
+                | Instr::Load(_)
+                | Instr::Store(_)
+                | Instr::AtomicRmw(_)
+                | Instr::Cmpxchg(_)
+                | Instr::AtomicNotify(_)
+                | Instr::AtomicWait(_)
+                | Instr::AtomicFence(_)
+                | Instr::TableGet(_)
+                | Instr::TableSet(_)
+                | Instr::TableGrow(_)
+                | Instr::TableSize(_)
+                | Instr::TableFill(_)
+                | Instr::RefNull(_)
+                | Instr::RefIsNull(_)
+                | Instr::RefFunc(_)
+                | Instr::V128Bitselect(_)
+                | Instr::I8x16Swizzle(_)
+                | Instr::I8x16Shuffle(_)
+                | Instr::LoadSimd(_)
+                | Instr::TableInit(_)
+                | Instr::ElemDrop(_)
+                | Instr::TableCopy(_) => {
                     insert_locs.positions.push((i, None));
                 }
             }
@@ -105,32 +158,33 @@ fn insert_probes(
 ) -> usize {
     let mut inserts_so_far: usize = 0;
     let mut probe_count = 0;
-    for (pos_orig, block_insert_locs_option) in &insert_locs.positions {
+    for (_index, (pos_orig, block_insert_locs_option)) in insert_locs.positions.iter().enumerate() {
+        let ioffset = foffset + (probe_count * COUNTSIZE);
+        let mut i = pos_orig + inserts_so_far;
+
         match block_insert_locs_option {
             Some(block_insert_locs) => {
-                probe_count += insert_probes(func, block_insert_locs, foffset, mem_id);
+                let insert_count = insert_probes(func, block_insert_locs, &ioffset, mem_id);
+                probe_count += insert_count;
             }
-            _ => {
+            None => {
                 let func_builder = func.builder_mut();
                 let mut instr_builder = func_builder.instr_seq(insert_locs.id);
 
-                let ioffset: i32 = (foffset + pos_orig) as i32;
-                let mut i = pos_orig + inserts_so_far;
-
                 // Insert store index const instr
                 let store_index = Const {
-                    value: Value::I32(ioffset),
+                    value: Value::I32(ioffset as i32),
                 };
-                let i64_const_store_index: Instr = Instr::Const(store_index);
-                instr_builder.instr_at(i, i64_const_store_index);
+                let i32_const_store_index: Instr = Instr::Const(store_index);
+                instr_builder.instr_at(i, i32_const_store_index);
                 i += 1;
 
                 // Insert load index const instr
                 let load_index = Const {
-                    value: Value::I32(ioffset),
+                    value: Value::I32(ioffset as i32),
                 };
-                let i64_const_load_index: Instr = Instr::Const(load_index);
-                instr_builder.instr_at(i, i64_const_load_index);
+                let i32_const_load_index: Instr = Instr::Const(load_index);
+                instr_builder.instr_at(i, i32_const_load_index);
                 i += 1;
 
                 // Insert load instr
@@ -138,9 +192,9 @@ fn insert_probes(
                     i,
                     Instr::Load(Load {
                         memory: *mem_id,
-                        kind: LoadKind::I64 { atomic: false },
+                        kind: LoadKind::I32 { atomic: false },
                         arg: MemArg {
-                            align: 0, // XXX: Not sure if alignment is OK
+                            align: COUNTSIZE as u32,
                             offset: 0,
                         },
                     }),
@@ -149,17 +203,17 @@ fn insert_probes(
 
                 // Insert increment count const
                 let incr_count = Const {
-                    value: Value::I64(1),
+                    value: Value::I32(1),
                 };
-                let i64_const_incr_count: Instr = Instr::Const(incr_count);
-                instr_builder.instr_at(i, i64_const_incr_count);
+                let i32_const_incr_count: Instr = Instr::Const(incr_count);
+                instr_builder.instr_at(i, i32_const_incr_count);
                 i += 1;
 
                 // Insert add instr
                 instr_builder.instr_at(
                     i,
                     Instr::Binop(Binop {
-                        op: BinaryOp::I64Add,
+                        op: BinaryOp::I32Add,
                     }),
                 );
                 i += 1;
@@ -169,9 +223,9 @@ fn insert_probes(
                     i,
                     Instr::Store(Store {
                         memory: *mem_id,
-                        kind: StoreKind::I64 { atomic: false },
+                        kind: StoreKind::I32 { atomic: false },
                         arg: MemArg {
-                            align: 0, // XXX: Not sure if alignment is OK
+                            align: COUNTSIZE as u32,
                             offset: 0,
                         },
                     }),
