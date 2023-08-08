@@ -94,6 +94,18 @@ fn get_probe_insert_locs(func: &LocalFunction, instr_seq_id: InstrSeqId) -> Prob
                         .positions
                         .push((i, Some(else_block_insert_locs)));
                 }
+                Instr::BrTable(table) => {
+                    let table_blocks: &[InstrSeqId] = &table.blocks[..];
+                    for &block in table_blocks {
+                        let block_insert_locs = get_probe_insert_locs(func, block);
+                        insert_locs.positions.push((i, Some(block_insert_locs)));
+                    }
+
+                    let default_block_insert_locs = get_probe_insert_locs(func, table.default);
+                    insert_locs
+                        .positions
+                        .push((i, Some(default_block_insert_locs)));
+                }
                 Instr::Call(_)
                 | Instr::CallIndirect(_)
                 | Instr::LocalGet(_)
@@ -108,7 +120,6 @@ fn get_probe_insert_locs(func: &LocalFunction, instr_seq_id: InstrSeqId) -> Prob
                 | Instr::Unreachable(_)
                 | Instr::Br(_)
                 | Instr::BrIf(_)
-                | Instr::BrTable(_)
                 | Instr::Drop(_)
                 | Instr::Return(_)
                 | Instr::MemorySize(_)
